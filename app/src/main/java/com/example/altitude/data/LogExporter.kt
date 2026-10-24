@@ -15,9 +15,8 @@ object LogExporter {
     fun appVersion(ctx: Context): String {
         return try {
             val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-            @Suppress("DEPRECATION")
-            val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toString() else pi.versionCode.toString()
-            "v${pi.versionName} (build $code)"
+            // 四段式版本号的最后一段就是构建号，不再额外显示 versionCode
+            "v${pi.versionName}"
         } catch (_: Exception) { "unknown" }
     }
 
@@ -32,6 +31,12 @@ object LogExporter {
             appendLine("app=${appVersion(ctx)}")
             appendLine("device=${Build.MANUFACTURER} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
             appendLine("state: fused=${state.fusedAlt} gps=${state.gpsAlt} vAcc=${state.gpsAccuracy} pressure=${state.pressure} p0=${state.p0}")
+            appendLine("position: lat=${state.latitude} lon=${state.longitude} fixFromCache=${state.fixFromCache} lastFixTime=${state.lastFixTimeMs}")
+            appendLine("providers: gpsEnabled=${state.gpsEnabled} networkEnabled=${state.networkEnabled} fineLocation=${state.fineLocation}")
+            appendLine("gnss: visible=${state.satellitesVisible} used=${state.satellitesUsed} withSignal=${state.satellitesWithSignal} avgCn0=${state.gnssAvgCn0}")
+            appendLine("satellites: " + state.satellites.joinToString("; ") {
+                "${it.constellation}#${it.prn} cn0=${it.cn0DbHz} fix=${it.usedInFix}"
+            })
             appendLine("hasBarometer=${state.hasBarometer} gpsCount=${state.gpsCount} availability=${state.availability}")
             appendLine("lastRaw=${state.lastRawFix}")
             appendLine("lastError=${state.lastError}")

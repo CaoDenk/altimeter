@@ -12,9 +12,12 @@ import androidx.lifecycle.viewModelScope
 import com.example.altitude.data.BarometerDataSource
 import com.example.altitude.data.LocationTag
 import com.example.altitude.data.LogExporter
+import com.example.altitude.data.SatelliteInfo
+import com.example.altitude.data.gnssSignalFlow
 import com.example.altitude.data.lastKnownFix
 import com.example.altitude.data.locationFlow
 import com.example.altitude.domain.AltitudeFusionEngine
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -29,8 +32,23 @@ data class AltitudeUiState(
     val status: String = "初始化...",
     val gpsCount: Int = 0,
     val availability: Boolean? = null,
+    val gpsEnabled: Boolean? = null,
+    val networkEnabled: Boolean? = null,
+    val fineLocation: Boolean? = null,
     val lastRawFix: String? = null,
-    val lastError: String? = null
+    val lastError: String? = null,
+    // 位置
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    // 卫星
+    val satellitesVisible: Int? = null,
+    val satellitesUsed: Int? = null,
+    val satellitesWithSignal: Int? = null,
+    val gnssAvgCn0: Float? = null,
+    val satellites: List<SatelliteInfo> = emptyList(),
+    // 当前海拔是缓存定位还是实时定位
+    val fixFromCache: Boolean = false,
+    val lastFixTimeMs: Long? = null
 )
 
 class AltitudeViewModel(app: Application) : AndroidViewModel(app) {
@@ -39,12 +57,21 @@ class AltitudeViewModel(app: Application) : AndroidViewModel(app) {
 
     private var baroStarted = false
     private var gpsStarted = false
+    private var lastKnownJob: Job? = null
+    private var gnssJob: Job? = null
+    private var locationJob: Job? = null
 
     fun hasLocationPermission(): Boolean {
         val ctx = getApplication<Application>()
         val fine = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
         val coarse = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION)
         return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun hasFineLocationPermission(): Boolean {
+        val ctx = getApplication<Application>()
+        return ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
     }
 
     /** 气压采集：无需权限，可独立显示，室内也有数 */
@@ -72,7 +99,11 @@ class AltitudeViewModel(app: Application) : AndroidViewModel(app) {
                         it.copy(
                             pressure = p,
                             fusedAlt = fused,
-                            status = if (it.gpsAlt == null) "气压模式（GPS无信号）" else "定位正常"
+                            status = when {
+                                it.fixFromCache -> "缓存定位，等待 GPS 更新"
+                                it.gpsAlt == null -> "气压模式（GPS无信号）"
+                                else -> "定位正常"
+                            }
                         )
                     }
                 }
@@ -90,27 +121,67 @@ class AltitudeViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         Log.d(LocationTag, "startGps")
+        val fine = hasFineLocationPermission()
+        _state.update {
+            it.copy(
+                fineLocation = fine,
+                status = if (!fine) "仅大致位置，请授予精确位置" else it.status
+            )
+        }
+        Log.d(
+            LocationTag,
+            "permissions fine=$fine coarse=${ContextCompat.checkSelfPermission(
+                ctx, Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED}"
+        )
         // 先取一次最后已知位置，秒出数，不用干等卫星
-        viewModelScope.launch {
+        lastKnownJob = viewModelScope.launch {
             try {
                 val last = lastKnownFix(ctx)
-                if (last != null) onGpsFix(last.altitude.toFloat(), last.verticalAccuracy)
+                if (last != null) onGpsFix(
+                    last.altitude.toFloat(),
+                    last.verticalAccuracy,
+                    last.lat,
+                    last.lon,
+                    fromCache = true,
+                    fixTime = last.time
+                )
             } catch (e: SecurityException) {
                 _state.update { it.copy(status = "请授予定位权限", lastError = e.message) }
             } catch (e: Exception) {
                 Log.d(LocationTag, "lastLocation failed: ${e.message}")
             }
         }
-        viewModelScope.launch {
-            locationFlow(
-                ctx,
-                onAvailability = { ok ->
+        // 卫星状态：和 GPS 一起启动，失败只影响「详细」面板
+        gnssJob = viewModelScope.launch {
+            gnssSignalFlow(ctx)
+                .catch { e -> Log.d(LocationTag, "gnss status failed: ${e.message}") }
+                .collect { g ->
                     _state.update {
                         it.copy(
-                            availability = ok,
+                            satellitesVisible = g.visible,
+                            satellitesUsed = g.usedInFix,
+                            satellitesWithSignal = g.withSignal,
+                            gnssAvgCn0 = g.avgCn0,
+                            satellites = g.satellites
+                        )
+                    }
+                }
+        }
+        locationJob = viewModelScope.launch {
+            locationFlow(
+                ctx,
+                onAvailability = { gpsOn, netOn ->
+                    _state.update {
+                        it.copy(
+                            availability = gpsOn || netOn,
+                            gpsEnabled = gpsOn,
+                            networkEnabled = netOn,
                             status = when {
-                                !ok && it.fusedAlt == null -> "系统定位不可用，请打开定位开关"
-                                ok && it.fusedAlt == null -> "搜索GPS信号中（请到室外等待1-2分钟）"
+                                it.fineLocation == false -> "仅大致位置，请授予精确位置"
+                                !gpsOn && netOn -> "GPS 未开启，仅网络定位（无海拔）"
+                                !gpsOn && !netOn -> "系统定位不可用，请打开定位开关"
+                                gpsOn && it.fusedAlt == null -> "搜索GPS信号中（请到室外等待1-2分钟）"
                                 else -> it.status
                             }
                         )
@@ -122,12 +193,51 @@ class AltitudeViewModel(app: Application) : AndroidViewModel(app) {
                     Log.w(LocationTag, "gps flow failed", e)
                     _state.update { it.copy(status = "定位失败: ${e.message}", lastError = e.message) }
                 }
-                .collect { g -> onGpsFix(g.altitude.toFloat(), g.verticalAccuracy) }
+                .collect { g ->
+                    onGpsFix(
+                        g.altitude.toFloat(),
+                        g.verticalAccuracy,
+                        g.lat,
+                        g.lon,
+                        fromCache = false,
+                        fixTime = g.time
+                    )
+                }
         }
     }
 
-    private fun onGpsFix(gpsAlt: Float, acc: Float?) {
-        Log.d(LocationTag, "gps fix accepted alt=$gpsAlt vAcc=$acc")
+    /** 重新注册定位与卫星监听：GNSS 卡死或长时间没有 fix 时手动救活 */
+    fun restartGps() {
+        Log.d(LocationTag, "restartGps")
+        lastKnownJob?.cancel()
+        gnssJob?.cancel()
+        locationJob?.cancel()
+        gpsStarted = false
+        _state.update { it.copy(status = "重新搜索 GPS...", lastError = null) }
+        startGps()
+    }
+
+    private fun onGpsFix(
+        gpsAlt: Float,
+        acc: Float?,
+        lat: Double,
+        lon: Double,
+        fromCache: Boolean,
+        fixTime: Long
+    ) {
+        // 实时 fix 的兜底校验：0 米或瞬间跳变上千米都当假定位丢掉，保留上一个可信值
+        if (!fromCache) {
+            val prev = _state.value.fusedAlt
+            if (gpsAlt == 0f) {
+                Log.w(LocationTag, "gps fix rejected: zero altitude")
+                return
+            }
+            if (prev != null && kotlin.math.abs(gpsAlt - prev) > 1000f) {
+                Log.w(LocationTag, "gps fix rejected: jump ${prev} -> $gpsAlt")
+                return
+            }
+        }
+        Log.d(LocationTag, "gps fix accepted alt=$gpsAlt vAcc=$acc lat=$lat lon=$lon cached=$fromCache")
         val fused = if (_state.value.pressure != null && _state.value.hasBarometer) {
             AltitudeFusionEngine.fuse(
                 AltitudeFusionEngine.pressureToAltitude(_state.value.pressure!!, _state.value.p0),
@@ -137,7 +247,19 @@ class AltitudeViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             gpsAlt
         }
-        _state.update { it.copy(gpsAlt = gpsAlt, gpsAccuracy = acc, fusedAlt = fused, status = "定位正常", gpsCount = it.gpsCount + 1) }
+        _state.update {
+            it.copy(
+                gpsAlt = gpsAlt,
+                gpsAccuracy = acc,
+                fusedAlt = fused,
+                status = if (fromCache) "缓存定位，等待 GPS 更新" else "定位正常",
+                gpsCount = it.gpsCount + if (fromCache) 0 else 1,
+                latitude = lat,
+                longitude = lon,
+                fixFromCache = fromCache,
+                lastFixTimeMs = fixTime
+            )
+        }
     }
 
     /** 手动校准：输入已知海拔，反推 P0 */
