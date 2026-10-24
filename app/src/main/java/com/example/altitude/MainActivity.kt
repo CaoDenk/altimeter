@@ -7,10 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
 import androidx.core.content.ContextCompat
 import com.example.altitude.ui.AltitudeViewModel
 import com.example.altitude.ui.HomeScreen
+import com.example.altitude.ui.theme.AltimeterTheme
 
 class MainActivity : ComponentActivity() {
     private val vm: AltitudeViewModel by viewModels()
@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
             )
         }
         setContent {
-            MaterialTheme {
+            AltimeterTheme {
                 HomeScreen(vm, onRequestPermission = {
                     permLauncher.launch(
                         arrayOf(

@@ -4,7 +4,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-feature android:name="android.hardware.sensor.barometer" android:required="false" />
 
-    <application android:label="Altimeter" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <application android:label="Altimeter" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round">
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

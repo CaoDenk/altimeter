@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.altitude"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.0.5"
+        versionCode = 13
+        versionName = "1.0.6.6"
     }
     buildFeatures { compose = true }
     compileOptions {

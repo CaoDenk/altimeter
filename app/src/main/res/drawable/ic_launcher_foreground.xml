@@ -8,15 +8,15 @@
     <path
         android:fillColor="#FFD54F"
         android:pathData="M79,17m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0" />
-    <!-- 远山 -->
+    <!-- 远山（深色底上提亮，保证可见） -->
     <path
-        android:fillColor="#0D47A1"
+        android:fillColor="#3E5C82"
         android:pathData="M-4,84 L30,40 L46,60 L62,42 L112,84 Z" />
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#BFD7F2"
         android:pathData="M30,40 L22,50 L27,48 L30,52 L34,48 L39,50 Z" />
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#BFD7F2"
         android:pathData="M62,42 L55,51 L59,49 L62,53 L66,49 L70,51 Z" />
     <!-- 主雪山 -->
     <path

@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 单色版，供 Android 13+ 主题图标使用 -->
+    <!-- 单色版，供 Android 13+ 主题图标使用，与 foreground 剪影一致 -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M79,17m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0" />
@@ -14,4 +14,10 @@
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M6,92 L48,46 L90,92 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,46 L48,30 L50.5,30 L50.5,46 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,30 L60,34 L48,38 Z" />
 </vector>
